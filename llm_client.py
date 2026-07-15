@@ -17,7 +17,7 @@ from google import genai
 
 # Central place to update the model name if needed.
 # You can swap this for a different Gemini model in the future.
-GEMINI_MODEL_NAME = "gemma-3-27b-it"
+GEMINI_MODEL_NAME = "gemma-4-26b-a4b-it"
 
 
 class GeminiClient:
@@ -78,7 +78,7 @@ class GeminiClient:
         """
 
         if not snippets:
-            return "I do not know based on the docs I have."
+            return "I can't help you. I do not know based on the docs I have."
 
         context_blocks = []
         for filename, text in snippets:
@@ -108,7 +108,7 @@ Rules:
 - Use only the information in the snippets. Do not invent new functions,
   endpoints, or configuration values.
 - If the snippets are not enough to answer confidently, reply exactly:
-  "I do not know based on the docs I have."
+  "I can't help you. I do not know based on the docs I have."
 - When you do answer, briefly mention which files you relied on.
 """
 

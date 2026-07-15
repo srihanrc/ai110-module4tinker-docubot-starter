@@ -9,7 +9,6 @@ Core DocuBot class responsible for:
 
 import os
 import glob
-import math
 
 class DocuBot:
     def __init__(self, docs_folder="docs", llm_client=None, min_evidence_score=2):
@@ -94,53 +93,38 @@ class DocuBot:
         - Count how many appear in the text
         - Return the count as the score
         """
-        # Improved scoring: TF-IDF style with length normalization to penalize
-        # generic matches. Uses the inverted index built in `build_index`
-        # (which maps words -> filenames) to compute IDF over documents.
-
         punct = '.,!?;:()[]{}"\'"-'
-        query_tokens = [w.strip(punct) for w in query.lower().split() if w.strip(punct)]
+        stopwords = {
+            'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+            'to', 'of', 'in', 'on', 'for', 'with', 'at', 'by', 'from', 'as',
+            'and', 'or', 'if', 'but', 'not', 'this', 'that', 'these', 'those',
+            'their', 'there', 'here', 'when', 'where', 'who', 'what', 'why',
+            'how', 'which', 'does', 'do', 'did', 'have', 'has', 'had', 'can',
+            'could', 'should', 'would', 'will', 'about', 'into', 'through',
+            'during', 'before', 'after', 'above', 'below', 'under', 'over',
+            'then', 'than', 'so', 'because', 'also'
+        }
+
+        query_tokens = [
+            token for token in
+            (w.strip(punct) for w in query.lower().split())
+            if token and token not in stopwords and len(token) > 1
+        ]
         if not query_tokens:
             return 0
 
-        # Tokenize the section text
-        section_tokens = [w.strip(punct) for w in text.lower().split() if w.strip(punct)]
-        if not section_tokens:
+        text_tokens = [
+            token for token in
+            (w.strip(punct) for w in text.lower().split())
+            if token
+        ]
+        if not text_tokens:
             return 0
 
-        section_token_counts = {}
-        for t in section_tokens:
-            section_token_counts[t] = section_token_counts.get(t, 0) + 1
-
-        # Number of documents in the corpus (for IDF)
-        n_docs = len(self.documents) if hasattr(self, 'documents') else 1
-
-        score = 0.0
-        matched_distinct = 0
-        for token in set(query_tokens):
-            if not token:
-                continue
-            tf = section_token_counts.get(token, 0)
-            if tf <= 0:
-                continue
-            # Document frequency: number of documents containing the token
-            df = len(self.index.get(token, [])) if hasattr(self, 'index') else 0
-            # IDF smoothing
-            idf = math.log((n_docs + 1) / (df + 1)) if n_docs > 0 else 0.0
-            # accumulate TF * IDF
-            score += tf * idf
-            matched_distinct += 1
-
-        if matched_distinct == 0:
-            return 0
-
-        # Length normalization: prefer compact sections with concentrated matches
-        length_norm = 1.0 + len(section_tokens)
-        normalized = score / length_norm
-
-        # Scale to an integer score for compatibility with existing checks
-        scaled = int(round(normalized * 100))
-        return scaled
+        score = 0
+        for token in query_tokens:
+            score += text_tokens.count(token)
+        return score
 
     def retrieve(self, query, top_k=3):
         """
@@ -153,15 +137,17 @@ class DocuBot:
 
         for filename, text in self.documents:
             # Split text into sections by double newlines (paragraphs).
-            # This keeps returned chunks smaller and more focused.
-            sections = text.split('\n\n')
+            sections = [section.strip() for section in text.split('\n\n') if section.strip()]
 
-            for section in sections:
-                if section.strip():  # Skip empty sections
-                    score = self.score_document(query, section)
-                    if score > 0:
-                        # Store tuples as (score, filename, section)
-                        scored_sections.append((score, filename, section))
+            for index, section in enumerate(sections):
+                # Create a small context window around the matching paragraph.
+                combined = section
+                if index + 1 < len(sections):
+                    combined = f"{section}\n\n{sections[index + 1]}"
+
+                score = self.score_document(query, combined)
+                if score > 0:
+                    scored_sections.append((score, filename, combined))
 
         # Sort by score descending
         scored_sections.sort(key=lambda x: x[0], reverse=True)
@@ -183,12 +169,12 @@ class DocuBot:
         snippets = self.retrieve(query, top_k=top_k)
 
         if not snippets:
-            return "I do not know based on these docs."
+            return "I can't help you. I do not know based on these docs."
 
         # Guardrail: require the top snippet to have enough evidence
         top_score = max(s[2] for s in snippets)
         if top_score < self.min_evidence_score:
-            return "I do not know based on these docs."
+            return "I can't help you. I do not know based on these docs."
 
         formatted = []
         for filename, section, score in snippets:
@@ -211,12 +197,12 @@ class DocuBot:
         snippets = self.retrieve(query, top_k=top_k)
 
         if not snippets:
-            return "I do not know based on these docs."
+            return "I can't help you. I do not know based on these docs."
 
         # Guardrail: require the top snippet to have enough evidence
         top_score = max(s[2] for s in snippets)
         if top_score < self.min_evidence_score:
-            return "I do not know based on these docs."
+            return "I can't help you. I do not know based on these docs."
 
         # LLM expects (filename, text) pairs - strip scores before passing
         llm_snippets = [(fn, sec) for fn, sec, sc in snippets]
